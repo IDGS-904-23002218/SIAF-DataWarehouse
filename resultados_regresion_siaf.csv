@@ -1,0 +1,7 @@
+seccion,pendiente,rmse,r2,pred_24h,pred_48h,pred_72h,riesgo
+Centro_Sur,-7.4e-05,0.9251,-0.0695,4.109,4.002,3.895,BAJO
+Sur_Baja,0.000182,0.8093,-0.2418,4.751,5.013,5.275,BAJO
+Centro_Norte,6.8e-05,0.6932,-0.0003,4.303,4.401,4.499,BAJO
+Oeste_Residencial,-0.000285,1.5285,-0.6448,3.724,3.315,2.905,MEDIO
+Norte_Alta,8e-05,0.837,-0.2862,4.164,4.279,4.395,BAJO
+Este_Industrial,-0.000143,0.815,-0.018,3.833,3.626,3.419,BAJO
