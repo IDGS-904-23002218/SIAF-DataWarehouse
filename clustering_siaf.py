@@ -52,6 +52,22 @@ tabla_cruzada = pd.crosstab(df["cluster"], df["es_anomalia"])
 print(f"\nTabla cruzada cluster vs. clasificación Isolation Forest:\n{tabla_cruzada}")
 
 # ============================================================
+# Paso 5b: Métricas de evaluación del clustering
+# ============================================================
+from sklearn.metrics import silhouette_score, davies_bouldin_score, calinski_harabasz_score
+
+silhouette = silhouette_score(X, df["cluster"])
+davies = davies_bouldin_score(X, df["cluster"])
+calinski = calinski_harabasz_score(X, df["cluster"])
+
+print("\n" + "=" * 60)
+print("MÉTRICAS DE EVALUACIÓN DEL CLUSTERING")
+print("=" * 60)
+print(f"Silhouette Score:        {silhouette:.4f}  (rango -1 a 1, mayor es mejor)")
+print(f"Davies-Bouldin Index:    {davies:.4f}  (menor es mejor)")
+print(f"Calinski-Harabasz Index: {calinski:.4f} (mayor es mejor)")
+
+# ============================================================
 # Paso 6: Graficar clusters en el espacio original
 # (flujo vs presión normalizados)
 # ============================================================
