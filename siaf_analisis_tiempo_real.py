@@ -4,13 +4,19 @@ SIAF - Análisis en tiempo real sobre datos REALES de la base de datos
 Versión adaptada de preprocesamiento_siaf.py + clustering_siaf.py +
 regresion_siaf.py (materia de Extracción de Conocimiento en Bases de
 Datos), para correr sobre la tabla `lecturas` real (poblada por el
-firmware SIAF_ESP32_v3.ino), en vez del dataset simulado de la materia.
+firmware del ESP32), en vez del dataset simulado de la materia.
+
+Esta versión está alineada con el notebook de Colab
+(SIAF_Analisis_Tiempo_Real.ipynb) que ya fue validado por el profesor:
+la función calcular_predicciones_riesgo() aplica el mismo filtro de
+rango físico (0-10 bar) que preprocesar(), para no repetir el problema
+de predicciones con presión negativa o fuera de rango detectado
+anteriormente.
 
 Diferencias clave respecto a los scripts originales de la materia:
   1. Lee de MySQL (Railway) en vez de un CSV estático.
   2. Usa los nombres de sección ACTUALES del prototipo físico
-     (Entrada, Tramo_Izquierdo, Tramo_Derecho) en vez de los antiguos
-     (Centro_Norte, Sur_Baja, etc.)
+     (Entrada, Tramo_Izquierdo, Tramo_Derecho, Parte_Abajo).
   3. Los datos reales NO vienen pre-etiquetados con tipo_evento/gravedad
      (a diferencia del dataset simulado de la materia) -- este script
      los INFIERE a partir del resultado de Isolation Forest / K-means,
@@ -18,16 +24,17 @@ Diferencias clave respecto a los scripts originales de la materia:
   4. Escribe los resultados directamente en las tablas `anomalias` y
      `predicciones_riesgo`, evitando reprocesar lecturas ya analizadas.
 
-Pensado para ejecutarse periódicamente (cron, tarea programada, o
-manualmente), no en cada request de la app.
+Pensado para ejecutarse periódicamente (cron job en Railway), no en
+cada request de la app.
 
-Requisitos: pip install -r requirements_analisis.txt
+Requisitos: pip install -r requirements.txt
 Variables de entorno esperadas (mismas que usa conexion.php en Railway):
   MYSQLHOST, MYSQLDATABASE, MYSQLUSER, MYSQLPASSWORD, MYSQLPORT
 """
 
 import os
 import sys
+import warnings
 from datetime import datetime
 
 import numpy as np
@@ -37,6 +44,10 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.ensemble import IsolationForest
 from sklearn.cluster import KMeans
 from sklearn.linear_model import LinearRegression
+
+# Silencia el UserWarning de pandas al usar mysql.connector en vez de
+# SQLAlchemy -- es solo una advertencia estética, no afecta el resultado.
+warnings.filterwarnings("ignore", category=UserWarning)
 
 # ============================================================
 # Secciones que SÍ tienen sensores propios (flujo y/o presión).
@@ -193,19 +204,25 @@ def guardar_anomalias(conexion, df):
 # ============================================================
 # PASO 6: Regresión de presión por sección -> predicciones_riesgo
 # (mismo enfoque que regresion_siaf.py, con nombres de sección reales)
+#
+# IMPORTANTE: se aplica el mismo filtro de rango físico (0-10 bar) que
+# en preprocesar(), para no repetir el problema de predicciones con
+# presión negativa o fuera de rango (ej. -95 bar) que se detectó al
+# validar este pipeline por primera vez contra datos reales.
 # ============================================================
 def calcular_predicciones_riesgo(conexion):
     query = """
         SELECT timestamp, seccion, presion_bar
         FROM lecturas
         WHERE seccion IN ({})
+          AND presion_bar >= 0 AND presion_bar <= 10
         ORDER BY timestamp ASC
     """.format(",".join(["%s"] * len(SECCIONES_CON_SENSOR)))
 
     df = pd.read_sql(query, conexion, params=SECCIONES_CON_SENSOR)
 
     if df.empty:
-        print("No hay lecturas suficientes para calcular predicciones de riesgo todavía.")
+        print("No hay lecturas válidas (dentro de rango físico) para calcular predicciones todavía.")
         return
 
     df["timestamp"] = pd.to_datetime(df["timestamp"])
@@ -218,7 +235,7 @@ def calcular_predicciones_riesgo(conexion):
 
         # Se requiere un mínimo de puntos para que la regresión tenga sentido
         if len(df_sec) < 10:
-            print(f"Sección {seccion}: aún no hay suficientes lecturas para predecir (mínimo 10).")
+            print(f"Sección {seccion}: aún no hay suficientes lecturas válidas para predecir (mínimo 10).")
             continue
 
         df_sec["minutos"] = (
@@ -237,6 +254,7 @@ def calcular_predicciones_riesgo(conexion):
         pred_72h = float(modelo.predict([[ultimo_minuto + 4320]])[0])
 
         riesgo = "ALTO" if pred_72h < 2.0 else ("MEDIO" if pred_72h < 3.0 else "BAJO")
+        r2 = modelo.score(X, y)
 
         cursor.execute(
             """
@@ -246,7 +264,7 @@ def calcular_predicciones_riesgo(conexion):
             (seccion, datetime.now(), round(pred_24h, 3), round(pred_48h, 3), round(pred_72h, 3), riesgo),
         )
 
-        print(f"Sección {seccion}: riesgo={riesgo} | pred_72h={round(pred_72h, 3)} bar")
+        print(f"Sección {seccion}: R²={r2:.4f} | riesgo={riesgo} | pred_72h={round(pred_72h, 3)} bar")
 
     conexion.commit()
     cursor.close()
